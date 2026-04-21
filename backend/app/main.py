@@ -6,7 +6,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["kbassistant-eymb5kwl8-tu12abs-projects.vercel.app","kbassistant.vercel.app"],
+    allow_origins=["https://kbassistant-sg45.vercel.app/"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
