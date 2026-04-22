@@ -582,16 +582,60 @@ body::after{
   #ca,#sb.off+#main #ca{padding:1.5rem 1rem}
   .iz{padding:1rem 1rem 1.25rem}
 }
+
+/* ── SPLASH / LOGIN GATE ── */
+#splash{
+  position:fixed;inset:0;z-index:500;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:var(--ink);
+  gap:2rem;
+}
+.splash-orb{
+  width:80px;height:80px;border-radius:50%;
+  background:radial-gradient(circle at 40% 40%,rgba(0,229,200,0.3),rgba(0,100,200,0.1) 60%,transparent);
+  border:1px solid rgba(0,229,200,0.25);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--ff-h);font-size:32px;color:var(--cyan);font-style:italic;
+  box-shadow:0 0 50px rgba(0,229,200,0.15);
+  animation:breathe 4s ease infinite;
+}
+.splash-title{font-family:var(--ff-h);font-size:2.4rem;color:var(--text);font-weight:400}
+.splash-title em{font-style:italic;color:var(--cyan)}
+.splash-sub{font-size:11px;color:var(--text3);font-family:var(--ff-m);letter-spacing:.1em}
+.splash-card{
+  background:rgba(6,10,24,0.92);border:1px solid var(--rim2);
+  border-radius:24px;padding:2.2rem;width:min(360px,92vw);
+  display:flex;flex-direction:column;gap:1rem;
+  box-shadow:0 0 80px rgba(0,229,200,0.06);
+}
 </style>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 </head>
 <body>
 
+
+<!-- ── SPLASH LOGIN GATE ── -->
+<div id="splash">
+  <div class="splash-orb">S</div>
+  <div>
+    <div class="splash-title">Meet <em>Sage</em></div>
+    <div class="splash-sub" style="text-align:center;margin-top:4px">made by <span style="color:var(--cyan)">Ankita</span></div>
+  </div>
+  <div class="splash-card">
+    <div style="font-family:var(--ff-h);font-size:17px;color:var(--text);text-align:center">Sign in to continue</div>
+    <div id="sp-err" style="font-size:12px;color:var(--warn);font-family:var(--ff-m);text-align:center;display:none"></div>
+    <input class="lminp" id="sp-name" type="text" placeholder="Your name" maxlength="32" style="margin:0"/>
+    <input class="lminp" id="sp-email" type="email" placeholder="Email address" style="margin:0"/>
+    <button class="lmbtn" onclick="doSplashLogin()">Enter Sage</button>
+    <div style="font-size:10px;color:var(--text3);text-align:center;font-family:var(--ff-m)">Your chats are private & stored locally</div>
+  </div>
+</div>
+
 <canvas id="nc"></canvas>
 <div id="cursor"><div id="cdot"></div><div id="cring"></div></div>
 
-<aside id="sb">
+<aside id="sb" style="display:none">
   <div class="sbh">
     <div class="logo">
       <div class="lmark">
@@ -661,7 +705,7 @@ body::after{
   </div>
 </aside>
 
-<main id="main">
+<main id="main" style="display:none">
   <div class="topbar">
     <button class="tbtog" onclick="toggleSB()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
@@ -810,11 +854,11 @@ document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;cur.style.le
 
 // ── STATE ──
 const API='https://kbassistant-63e1.onrender.com/chat';
-let convos=JSON.parse(localStorage.getItem('sage3')||'[]');
+let convos=[];
 let cid=null,imgD=null,isRec=false,recog=null,vtxt='';
 
 // ── HISTORY ──
-function saveC(){localStorage.setItem('sage3',JSON.stringify(convos))}
+function saveC(){if(user)localStorage.setItem('sage3-'+user.email,JSON.stringify(convos));}
 
 function renderH(f=''){
   const el=document.getElementById('hl');
@@ -990,8 +1034,14 @@ function save2H(u,a){
 function openV(){document.getElementById('vm').classList.add('open');vtxt='';document.getElementById('vtr').textContent='Your words will appear here…';document.getElementById('vstatus').textContent='Tap to speak'}
 function closeV(){stopRec();document.getElementById('vm').classList.remove('open')}
 function confirmV(){
-  if(vtxt){const i=document.getElementById('qi');i.value=vtxt;i.style.height='auto';i.style.height=Math.min(i.scrollHeight,180)+'px'}
-  closeV();
+  if(vtxt){
+    const i=document.getElementById('qi');
+    i.value=vtxt;i.style.height='auto';i.style.height=Math.min(i.scrollHeight,180)+'px';
+    closeV();
+    doSend();
+  } else {
+    closeV();
+  }
 }
 function stopRec(){
   if(recog){try{recog.stop()}catch(e){}recog=null}
@@ -1015,7 +1065,19 @@ function toggleRec(){
     }
     vtxt+=fin;document.getElementById('vtr').textContent=(vtxt+itr)||'Listening…';
   };
-  recog.onerror=()=>stopRec();recog.onend=()=>{isRec=false};recog.start();
+  recog.onerror=()=>stopRec();
+  recog.onend=()=>{
+    isRec=false;
+    // Auto-send when voice ends
+    if(vtxt.trim()){
+      const i=document.getElementById('qi');
+      i.value=vtxt.trim();i.style.height='auto';i.style.height=Math.min(i.scrollHeight,180)+'px';
+      document.getElementById('vm').classList.remove('open');
+      vtxt='';
+      doSend();
+    }
+  };
+  recog.start();
 }
 
 // ── UTIL ──
@@ -1153,6 +1215,26 @@ function rmImg(){
   }
 }
 
+
+// ── SPLASH LOGIN ──
+function doSplashLogin(){
+  const name=document.getElementById('sp-name').value.trim();
+  const email=document.getElementById('sp-email').value.trim();
+  const err=document.getElementById('sp-err');
+  if(!name){err.textContent='Please enter your name.';err.style.display='block';return;}
+  if(!email||!email.includes('@')){err.textContent='Please enter a valid email.';err.style.display='block';return;}
+  user={name,email};
+  localStorage.setItem('sage-user',JSON.stringify(user));
+  applyUser();
+  newChat();
+}
+// Enter key on splash inputs
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&document.getElementById('splash').style.display!=='none'){
+    doSplashLogin();
+  }
+});
+
 // ── USER / LOGIN ──
 let user=JSON.parse(localStorage.getItem('sage-user')||'null');
 function applyUser(){
@@ -1164,15 +1246,20 @@ function applyUser(){
     document.getElementById('um-name').textContent=user.name;
     document.getElementById('um-email').textContent=user.email;
     document.getElementById('signout-btn').style.display='flex';
-    // update user avatar in chat messages
     document.querySelectorAll('.av.hu').forEach(el=>el.textContent=init);
+    // Hide splash, show app
+    document.getElementById('splash').style.display='none';
+    document.getElementById('sb').style.display='';
+    document.getElementById('main').style.display='';
+    // Load this user's chat history
+    const saved=localStorage.getItem('sage3-'+user.email);
+    convos=saved?JSON.parse(saved):[];
+    renderH();
   } else {
-    document.getElementById('uav').textContent='?';
-    document.getElementById('uname').textContent='Guest User';
-    document.getElementById('uemail').textContent='Not signed in';
-    document.getElementById('um-name').textContent='Guest User';
-    document.getElementById('um-email').textContent='Not signed in';
-    document.getElementById('signout-btn').style.display='none';
+    // Show splash, hide app
+    document.getElementById('splash').style.display='flex';
+    document.getElementById('sb').style.display='none';
+    document.getElementById('main').style.display='none';
   }
 }
 function toggleUMenu(){
@@ -1197,29 +1284,30 @@ function doLogin(){
   if(!email||!email.includes('@')){err.textContent='Please enter a valid email.';err.style.display='block';return;}
   user={name,email};
   localStorage.setItem('sage-user',JSON.stringify(user));
-  applyUser();
   closeLM();
+  applyUser();
+  newChat();
 }
 function signOut(){
   user=null;localStorage.removeItem('sage-user');
-  applyUser();
+  convos=[];
   document.getElementById('umenu').classList.remove('open');
+  applyUser();
 }
 applyUser();
-
-renderH();
 </script>
 
 <!-- Login Modal -->
 <div id="lm">
   <div class="lmc">
     <div class="lmtit">Welcome to <em>Sage</em></div>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--ff-m);text-align:center;letter-spacing:.08em;margin-top:-8px">made by <span style="color:var(--cyan)">Ankita</span></div>
     <div id="lmerr" class="lmerr"></div>
     <input class="lminp" id="lm-name" type="text" placeholder="Your name" maxlength="32"/>
     <input class="lminp" id="lm-email" type="email" placeholder="Email address"/>
     <button class="lmbtn" onclick="doLogin()">Continue</button>
     <div class="lmsub">Your info is stored locally only. No server accounts.</div>
-    <button onclick="closeLM()" style="background:none;border:none;color:var(--text3);font-size:12px;cursor:pointer;font-family:var(--ff-m);margin-top:-8px">Cancel</button>
+
   </div>
 </div>
 
