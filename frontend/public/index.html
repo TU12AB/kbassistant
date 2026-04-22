@@ -809,7 +809,7 @@ document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;cur.style.le
 })();
 
 // ── STATE ──
-const API='https://kbassistant-63e1.onrender.com/chat';
+const API='http://127.0.0.1:8000/chat';
 let convos=JSON.parse(localStorage.getItem('sage3')||'[]');
 let cid=null,imgD=null,isRec=false,recog=null,vtxt='';
 
@@ -940,8 +940,17 @@ async function doSend(){
   // Build conversation history for context (exclude img data to keep payload small)
   const histMsgs=(cid?((convos.find(x=>x.id===cid)||{}).messages||[]):[])
     .map(m=>({role:m.role,content:m.content}));
-  let userContent=txt||(img?'Analyze this image':'')|| (sentFiles.length?'Please read the attached file(s) and summarise or answer any questions.':'');
+  let userContent=txt||(img?'Analyze this image':'')|(sentFiles.length?'Please read the attached file(s) and summarise or answer any questions.':'');
+  if(txt&&img) userContent=txt;
   histMsgs.push({role:'user',content:userContent});
+
+  // Include image in files array so backend vision can read it
+  const allFiles=[...sentFiles];
+  if(img){
+    const mime=img.split(';')[0].split(':')[1]||'image/jpeg';
+    const b64=img.split(',')[1];
+    allFiles.unshift({name:'image.jpg',mime,data:b64});
+  }
 
   try{
     const r=await fetch(API,{
@@ -949,7 +958,7 @@ async function doSend(){
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
         messages:histMsgs,
-        files:sentFiles.map(f=>({name:f.name,mime:f.mime,data:f.data}))
+        files:allFiles.map(f=>({name:f.name,mime:f.mime,data:f.data}))
       })
     });
     if(!r.ok)throw new Error();
@@ -1076,7 +1085,7 @@ function exportC(){
 }
 
 function demoR(q,hasImg){
-  return{answer:"⚠️ Could not reach the backend server.\n\nThe server may be starting up (Render free tier sleeps after inactivity). Please wait 30 seconds and try again.",sources:[]};
+  return{answer:"⚠️ Could not reach the backend server.\n\nMake sure your FastAPI server is running:\n`uvicorn app.main:app --reload`\n\nThen refresh and try again.",sources:[]};
 }
 
 // textarea resize + keyboard
