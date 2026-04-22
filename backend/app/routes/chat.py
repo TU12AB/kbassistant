@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from openai import OpenAI
 from app.config import OPENAI_API_KEY
-import base64, io, json, csv
+import base64, io, json, csv, tempfile, os
 
 router = APIRouter()
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -25,11 +25,11 @@ class Message(BaseModel):
 class FileAttachment(BaseModel):
     name: str
     mime: str
-    data: str   # base64-encoded file content from frontend
+    data: str  # base64-encoded
 
 class ChatRequest(BaseModel):
     messages: list[Message]
-    files: list[FileAttachment] = []   # optional attached files
+    files: list[FileAttachment] = []
 
 # ── FILE EXTRACTORS ──
 
@@ -44,7 +44,6 @@ def extract_pdf(data: bytes) -> str:
                     pages.append(f"[Page {i+1}]\n{text.strip()}")
             return "\n\n".join(pages) if pages else "(PDF had no extractable text)"
     except ImportError:
-        # fallback: pypdf
         try:
             import pypdf
             reader = pypdf.PdfReader(io.BytesIO(data))
@@ -68,7 +67,6 @@ def extract_csv(data: bytes) -> str:
         rows = list(reader)
         if not rows:
             return "(Empty CSV)"
-        # Show header + up to 50 rows
         lines = [" | ".join(r) for r in rows[:51]]
         result = "\n".join(lines)
         if len(rows) > 51:
@@ -87,8 +85,35 @@ def extract_json(data: bytes) -> str:
 def extract_text(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
+def extract_audio(name: str, mime: str, data: bytes) -> str:
+    """Transcribe audio using OpenAI Whisper."""
+    try:
+        ext = name.lower().rsplit(".", 1)[-1] if "." in name else "mp3"
+        # Whisper accepts: mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg
+        allowed = {"mp3","mp4","mpeg","mpga","m4a","wav","webm","ogg"}
+        if ext not in allowed:
+            ext = "mp3"
+        with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+        with open(tmp_path, "rb") as f:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+            )
+        os.unlink(tmp_path)
+        return f"[Audio Transcript]\n{transcript.text}"
+    except Exception as e:
+        return f"(Could not transcribe audio: {e})"
+
 def extract_file(name: str, mime: str, data: bytes) -> str:
     ext = name.lower().rsplit(".", 1)[-1] if "." in name else ""
+    # Audio
+    if mime.startswith("audio/") or ext in ("mp3","mp4","m4a","wav","webm","ogg","mpeg","mpga"):
+        return extract_audio(name, mime, data)
+    # Image — return a marker so the route can handle it via vision
+    if mime.startswith("image/") or ext in ("jpg","jpeg","png","gif","webp"):
+        return "__IMAGE__"
     if ext == "pdf" or mime == "application/pdf":
         return extract_pdf(data)
     elif ext in ("docx",) or "wordprocessingml" in mime:
@@ -102,7 +127,6 @@ def extract_file(name: str, mime: str, data: bytes) -> str:
     elif ext in ("txt","md","py","js","ts","jsx","tsx","html","css","java","c","cpp","cs","go","rs","sh","yaml","yml","toml","xml","sql") or mime.startswith("text/"):
         return extract_text(data)
     else:
-        # Try as plain text, fallback gracefully
         try:
             return data.decode("utf-8", errors="replace")[:8000]
         except:
@@ -115,24 +139,48 @@ def chat(request: ChatRequest):
     try:
         messages = [SYSTEM_PROMPT] + [m.dict() for m in request.messages]
 
-        # Inject extracted file contents into the last user message
         if request.files:
             file_sections = []
+            image_files = []  # collect images for vision
+
             for f in request.files:
                 try:
                     raw = base64.b64decode(f.data)
                 except Exception:
                     raw = f.data.encode("utf-8", errors="replace")
+
                 extracted = extract_file(f.name, f.mime, raw)
-                file_sections.append(
-                    f"--- File: {f.name} ---\n{extracted}\n--- End of {f.name} ---"
-                )
-            file_block = "\n\n".join(file_sections)
-            # Append file content to last user message
-            if messages and messages[-1]["role"] == "user":
-                messages[-1]["content"] += f"\n\n{file_block}"
-            else:
-                messages.append({"role": "user", "content": file_block})
+
+                if extracted == "__IMAGE__":
+                    # store for vision call
+                    image_files.append({"mime": f.mime, "data": f.data})
+                else:
+                    file_sections.append(
+                        f"--- File: {f.name} ---\n{extracted}\n--- End of {f.name} ---"
+                    )
+
+            # Inject text files into last user message
+            if file_sections:
+                file_block = "\n\n".join(file_sections)
+                if messages and messages[-1]["role"] == "user":
+                    messages[-1]["content"] += f"\n\n{file_block}"
+                else:
+                    messages.append({"role": "user", "content": file_block})
+
+            # Handle images via vision (multimodal content)
+            if image_files:
+                last = messages[-1] if messages else None
+                text_part = (last["content"] if last and last["role"] == "user" else "") or "Analyse this image."
+                # Remove last user message — we'll rebuild it as multimodal
+                if last and last["role"] == "user":
+                    messages = messages[:-1]
+                content = [{"type": "text", "text": text_part}]
+                for img in image_files:
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{img['mime']};base64,{img['data']}"}
+                    })
+                messages.append({"role": "user", "content": content})
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
