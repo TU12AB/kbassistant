@@ -594,12 +594,7 @@ body::after{
   }
   #sb.open{transform:translateX(0)}
 
-  /* Overlay when sidebar open */
-  #sb.open::after{
-    content:'';position:fixed;inset:0;left:270px;
-    background:rgba(0,0,0,0.5);z-index:-1;
-    backdrop-filter:blur(2px);
-  }
+  /* Overlay handled by #sb-overlay div */
 
   /* Chat area - reduce padding on small screens */
   #ca{padding:1rem .85rem 1rem}
@@ -653,6 +648,8 @@ body::after{
 <body>
 
 <canvas id="nc"></canvas>
+<!-- Mobile sidebar overlay -->
+<div id="sb-overlay" onclick="closeSB()" ontouchstart="closeSB()" style="display:none;position:fixed;inset:0;z-index:70;background:rgba(0,0,0,0.5);backdrop-filter:blur(2px)"></div>
 <div id="cursor"><div id="cdot"></div><div id="cring"></div></div>
 
 <aside id="sb">
@@ -1076,8 +1073,20 @@ function toggleRec(){
 // ── UTIL ──
 function toggleSB(){
   const s=document.getElementById('sb');
-  if(window.innerWidth<=740){s.classList.toggle('open')}
-  else{s.classList.toggle('off')}
+  if(window.innerWidth<=740){
+    s.classList.toggle('open');
+    // toggle body overlay
+    const ov=document.getElementById('sb-overlay');
+    if(s.classList.contains('open')){ov.style.display='block';}
+    else{ov.style.display='none';}
+  } else {
+    s.classList.toggle('off');
+  }
+}
+function closeSB(){
+  const s=document.getElementById('sb');
+  s.classList.remove('open');
+  document.getElementById('sb-overlay').style.display='none';
 }
 function fill(t){const i=document.getElementById('qi');i.value=t;i.focus();i.style.height='auto';i.style.height=Math.min(i.scrollHeight,180)+'px'}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
